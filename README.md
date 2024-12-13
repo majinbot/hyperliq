@@ -1,24 +1,25 @@
 # Hyperliquid API SDK
 
-Typescript SDK to more easily interact with Hyperliquid's API
+Typescript SDK to more easily interact with @hyperliquid-dex API.
 
-All info on the Hyperliquid API can be found here: [HyperLiquid API Documentation](https://hyperliquid.gitbook.io/hyperliquid-docs)
+The official Hyperliquid API docs can be found [here](https://hyperliquid.gitbook.io/hyperliquid-docs).
+
 
 ## Installation
 
 ```bash
-npm install --save hyperliq
+bun add hyperliq
 ```
 
 
-
 ## Account & Authentication
-### Private Key vs. API Agent Wallet
+
+### Private Key vs. Agent Wallet
 
 - If you have your own private key for a Hyperliquid account, simply pass it into the Hyperliquid constructor. The SDK can derive your wallet address automatically.
 - If you are using an API Agent Wallet provided by Hyperliquid, you must supply a walletAddress as well. Without it, certain authenticated methods (like order placement) will fail, as the SDK needs your address to sign and validate actions.
 
-#### Providing Credentials
+### Providing Credentials
 - Set your private key and wallet address (if needed) via environment variables or directly in your code. For example:
 
 ```typescript
@@ -30,7 +31,7 @@ const walletAddress = process.env.HYPERLIQUID_WALLET_ADDRESS; // if using API ag
 const sdk = new Hyperliquid(privateKey, false, walletAddress);
 ```
 
-#### Testnet vs. Mainnet
+### Testnet vs. Mainnet
 
 Pass true as the second constructor argument to connect to the testnet environment. For example:
 ```typescript
@@ -38,12 +39,11 @@ const sdk = new Hyperliquid(privateKey, true);
 ```
 This lets you safely experiment with order placement without risking real funds.
 
-#### Rate Limits and Best Practices
+### Rate Limits and Best Practices
 
 - Hyperliquid enforces rate limits per IP and also has address-based rate limiting.
 - Start by calling low-rate-limit endpoints (e.g., getAllMids) and gradually integrate more complex operations.
 - If you encounter rate limit errors, slow down your requests or implement caching to avoid redundant calls.
-
 
 ## Symbol Naming Convention
 
@@ -56,7 +56,6 @@ This convention makes it easier to distinguish between spot and perpetual market
 
 
 ## Examples
-
 
 ### Exchange API Methods
 
@@ -121,8 +120,6 @@ sdk.exchange.transferBetweenSpotAndPerp(100, true) // Transfer 100 USDC from spo
 ```
 All methods supported can be found here: [Hyperliquid Exchange Endpoint API Documentation](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint)
 
-
-
 ### General Info Methods
 
 ```typescript
@@ -149,7 +146,6 @@ sdk.info.getL2Book('BTC-PERP').then(l2Book => {
 ```
 
 All methods supported can be found here: [Hyperliquid Info Endpoint API Documentation](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint)
-
 
 ### WebSocket Methods
 
@@ -191,7 +187,6 @@ async function testWebSocket() {
 testWebSocket();
 ```
 
-
 ### Spot Info Methods
 
 ```typescript
@@ -210,8 +205,6 @@ sdk.info.spot.getSpotClearinghouseState('user_address_here').then(spotClearingho
 });
 ```
 All methods supported can be found here: [Hyperliquid Spot Info Endpoint API Documentation](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint/spot)
-
-
 
 ### Perpetuals Info Methods
 
@@ -257,11 +250,9 @@ console.log(allAssets);
 All Custom methods are listed above. These are custom methods that are not part of the official Hyperliquid API. As more are added we will add examples for them here.
 
 
-
 ## Documentation
 
 For more detailed documentation on all available methods and their parameters, please refer to the [official Hyperliquid API documentation](https://hyperliquid.gitbook.io/hyperliquid-docs/).
-
 
 
 ## License

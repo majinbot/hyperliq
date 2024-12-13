@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { Hyperliquid } from '../..';
+import { Hyperliquid } from '../../src';
 import { PRIVATE_KEY, WALLET_ADDRESS } from '../setup';
 
 const sdk = new Hyperliquid(PRIVATE_KEY, false, WALLET_ADDRESS);
