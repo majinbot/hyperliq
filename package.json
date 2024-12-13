@@ -1,14 +1,13 @@
 {
   "name": "hyperliq",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "SDK for Hyperliquid API",
-  "main": "src/index.ts",
+  "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": ["src", "dist"],
   "scripts": {
-    "build": "tsc",
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "prepare": "npm run build"
+    "build": "bun run tsc",
+    "test": "bun test"
   },
   "keywords": [
     "hyperliquid",
@@ -25,20 +24,18 @@
   "license": "MIT",
   "dependencies": {
     "@msgpack/msgpack": "^3.0.0-beta2",
+    "@types/bun": "^1.1.14",
     "@types/ws": "^8.5.11",
     "axios": "^1.7.2",
     "ethers": "^6.13.2",
     "typescript": "^5.5.4",
     "ws": "^8.18.0"
   },
-  "directories": {
-    "test": "tests"
+  "devDependencies": {
+    "dotenv": "^16.4.5"
   },
   "repository": {
     "type": "git",
     "url": "https://github.com/majinbot/hyperliq"
-  },
-  "devDependencies": {
-    "dotenv": "^16.4.5"
   }
 }

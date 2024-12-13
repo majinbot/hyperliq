@@ -12,29 +12,37 @@ npm install --save hyperliq
 
 
 
-## Usage
+## Account & Authentication
+### Private Key vs. API Agent Wallet
 
-**API Agent Wallet Usage:** If you are using API Agent wallets everything works as normal but you need to add your actual account's wallet address in the Hyperliquid object field 'walletAddress'.
+- If you have your own private key for a Hyperliquid account, simply pass it into the Hyperliquid constructor. The SDK can derive your wallet address automatically.
+- If you are using an API Agent Wallet provided by Hyperliquid, you must supply a walletAddress as well. Without it, certain authenticated methods (like order placement) will fail, as the SDK needs your address to sign and validate actions.
 
-If you don't do this you will be unable to use some of the SDK methods successfully. If you are using
-your own Private Key then it's not necessary as the SDK can derive your wallet address from the Private key.
+#### Providing Credentials
+- Set your private key and wallet address (if needed) via environment variables or directly in your code. For example:
+
 ```typescript
 const { Hyperliquid } = require('hyperliq');
 
-const sdk = new Hyperliquid(
-  <private_key - string>,
-  <testnet - boolean (OPTIONAL)>,
-  <walletAddress - string (Required if you are using an API Agent Wallet, otherwise not necessary)>
-);
+const privateKey = process.env.HYPERLIQUID_PRIVATE_KEY; // recommended
+const walletAddress = process.env.HYPERLIQUID_WALLET_ADDRESS; // if using API agent wallet
 
-// Use the SDK methods
-sdk.info.getAllMids().then(allMids => {
-  console.log(allMids);
-});
+const sdk = new Hyperliquid(privateKey, false, walletAddress);
 ```
-**Note:** You don't have to provide your private key, but it is required if you want to
-use the exchange API to place, cancel or modify orders or access your accounts assets.
 
+#### Testnet vs. Mainnet
+
+Pass true as the second constructor argument to connect to the testnet environment. For example:
+```typescript
+const sdk = new Hyperliquid(privateKey, true);
+```
+This lets you safely experiment with order placement without risking real funds.
+
+#### Rate Limits and Best Practices
+
+- Hyperliquid enforces rate limits per IP and also has address-based rate limiting.
+- Start by calling low-rate-limit endpoints (e.g., getAllMids) and gradually integrate more complex operations.
+- If you encounter rate limit errors, slow down your requests or implement caching to avoid redundant calls.
 
 
 ## Symbol Naming Convention
@@ -45,7 +53,6 @@ Instead of using native symbols (which can be confusing, like @1, @4, @5 for spo
 - For spot: `<coin>-SPOT` (e.g., PURR-SPOT, BTC-SPOT)
 
 This convention makes it easier to distinguish between spot and perpetual markets.
-
 
 
 ## Examples

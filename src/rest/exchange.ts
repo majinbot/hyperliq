@@ -1,7 +1,6 @@
 import { ethers } from 'ethers';
 import { RateLimiter } from '../utils/rateLimiter';
 import { HttpApi } from '../utils/helpers';
-import { InfoAPI } from './info';
 import {
   signL1Action,
   orderToWire,
@@ -19,6 +18,7 @@ import {
 } from '../types';
 import { ExchangeType, ENDPOINTS } from '../constants';
 import { SymbolConversion } from '../utils/symbolConversion';
+import { AddressL1RateLimiter } from '../utils/addressL1RateLimiter'; // Make sure to implement this
 
 export class ExchangeAPI {
   private readonly wallet: ethers.Wallet;
@@ -27,14 +27,14 @@ export class ExchangeAPI {
   private readonly IS_MAINNET: boolean = true;
   private readonly walletAddress: string | null;
   private _i = 0;
+  private l1Limiter: AddressL1RateLimiter;
 
   constructor(
-    testnet: boolean,
-    privateKey: string,
-    private info: InfoAPI,
-    rateLimiter: RateLimiter,
-    symbolConversion: SymbolConversion,
-    walletAddress: string | null = null
+      testnet: boolean,
+      privateKey: string,
+      rateLimiter: RateLimiter,
+      symbolConversion: SymbolConversion,
+      walletAddress: string | null = null
   ) {
     const baseURL = testnet ? CONSTANTS.BASE_URLS.TESTNET : CONSTANTS.BASE_URLS.PRODUCTION;
     this.IS_MAINNET = !testnet;
@@ -42,6 +42,9 @@ export class ExchangeAPI {
     this.wallet = new ethers.Wallet(privateKey);
     this.symbolConversion = symbolConversion;
     this.walletAddress = walletAddress;
+
+    // Initialize the L1 limiter
+    this.l1Limiter = new AddressL1RateLimiter();
   }
 
   private async getAssetIndex(symbol: string): Promise<number> {
@@ -56,6 +59,31 @@ export class ExchangeAPI {
     return index;
   }
 
+  private async getBatchLengthForL1(action: any): Promise<number> {
+    const actionType = action.type;
+    if (actionType === 'order' && Array.isArray(action.orders)) {
+      return action.orders.length;
+    } else if ((actionType === 'cancel' || actionType === 'cancelByCloid') && Array.isArray(action.cancels)) {
+      return action.cancels.length;
+    } else if (actionType === 'batchModify' && Array.isArray(action.modifies)) {
+      return action.modifies.length;
+    }
+    // Unbatched actions count as 1
+    return 1;
+  }
+
+  private isCancelAction(actionType: string): boolean {
+    return actionType === 'cancel' || actionType === 'cancelByCloid';
+  }
+
+  private async beforeSendL1Action(action: any): Promise<void> {
+    const requestCount = await this.getBatchLengthForL1(action);
+    const isCancel = this.isCancelAction(action.type);
+
+    const addr = this.walletAddress || this.wallet.address;
+    await this.l1Limiter.checkAndConsume(addr, isCancel, requestCount);
+  }
+
   async placeOrder(orderRequest: OrderRequest): Promise<any> {
     const { orders, vaultAddress = null, grouping = "na", builder } = orderRequest;
     const ordersArray = orders ?? [orderRequest as Order];
@@ -64,17 +92,20 @@ export class ExchangeAPI {
       const assetIndexCache = new Map<string, number>();
 
       const orderWires = await Promise.all(
-        ordersArray.map(async o => {
-          let assetIndex = assetIndexCache.get(o.coin);
-          if (assetIndex === undefined) {
-            assetIndex = await this.getAssetIndex(o.coin);
-            assetIndexCache.set(o.coin, assetIndex);
-          }
-          return orderToWire(o, assetIndex);
-        })
+          ordersArray.map(async o => {
+            let assetIndex = assetIndexCache.get(o.coin);
+            if (assetIndex === undefined) {
+              assetIndex = await this.getAssetIndex(o.coin);
+              assetIndexCache.set(o.coin, assetIndex);
+            }
+            return orderToWire(o, assetIndex);
+          })
       );
 
       const actions = orderWireToAction(orderWires, grouping, builder);
+
+      // L1 rate limit check
+      await this.beforeSendL1Action(actions);
 
       const nonce = Date.now();
       const signature = await signL1Action(this.wallet, actions, vaultAddress, nonce, this.IS_MAINNET);
@@ -86,25 +117,27 @@ export class ExchangeAPI {
     }
   }
 
-  //Cancel using order id (oid)
   async cancelOrder(cancelRequests: CancelOrderRequest | CancelOrderRequest[]): Promise<CancelOrderResponse> {
     try {
       const cancels = Array.isArray(cancelRequests) ? cancelRequests : [cancelRequests];
 
-      // Ensure all cancel requests have asset indices
-      const cancelsWithIndices = await Promise.all(cancels.map(async (req) => ({
-        ...req,
-        a: await this.getAssetIndex(req.coin)
-      })));
+      const cancelsWithIndices = await Promise.all(
+          cancels.map(async (req) => ({
+            ...req,
+            a: await this.getAssetIndex(req.coin)
+          }))
+      );
 
       const action = {
         type: ExchangeType.CANCEL,
         cancels: cancelsWithIndices.map(({ a, o }) => ({ a, o }))
       };
 
+      // L1 rate limit check
+      await this.beforeSendL1Action(action);
+
       const nonce = Date.now();
       const signature = await signL1Action(this.wallet, action, null, nonce, this.IS_MAINNET);
-
       const payload = { action, nonce, signature };
       return this.httpApi.makeRequest(payload, 1);
     } catch (error) {
@@ -112,7 +145,6 @@ export class ExchangeAPI {
     }
   }
 
-  //Cancel using a CLOID
   async cancelOrderByCloid(symbol: string, cloid: string): Promise<any> {
     try {
       const assetIndex = await this.getAssetIndex(symbol);
@@ -120,6 +152,10 @@ export class ExchangeAPI {
         type: ExchangeType.CANCEL_BY_CLOID,
         cancels: [{ asset: assetIndex, cloid }]
       };
+
+      // L1 rate limit check
+      await this.beforeSendL1Action(action);
+
       const nonce = Date.now();
       const signature = await signL1Action(this.wallet, action, null, nonce, this.IS_MAINNET);
 
@@ -130,7 +166,6 @@ export class ExchangeAPI {
     }
   }
 
-  //Modify a single order
   async modifyOrder(oid: number, orderRequest: Order): Promise<any> {
     try {
       const assetIndex = await this.getAssetIndex(orderRequest.coin);
@@ -141,6 +176,10 @@ export class ExchangeAPI {
         oid,
         order: orderWire
       };
+
+      // L1 rate limit check
+      await this.beforeSendL1Action(action);
+
       const nonce = Date.now();
       const signature = await signL1Action(this.wallet, action, null, nonce, this.IS_MAINNET);
 
@@ -151,24 +190,22 @@ export class ExchangeAPI {
     }
   }
 
-  //Modify multiple orders at once
   async batchModifyOrders(modifies: Array<{ oid: number, order: Order }>): Promise<any> {
     try {
-      // First, get all asset indices in parallel
       const assetIndices = await Promise.all(
-        modifies.map(m => this.getAssetIndex(m.order.coin))
+          modifies.map(m => this.getAssetIndex(m.order.coin))
       );
 
       const action = {
         type: ExchangeType.BATCH_MODIFY,
-        modifies: modifies.map((m, index) => {
-
-          return {
-            oid: m.oid,
-            order: orderToWire(m.order, assetIndices[index])
-          };
-        })
+        modifies: modifies.map((m, index) => ({
+          oid: m.oid,
+          order: orderToWire(m.order, assetIndices[index])
+        }))
       };
+
+      // L1 rate limit check
+      await this.beforeSendL1Action(action);
 
       const nonce = Date.now();
       const signature = await signL1Action(this.wallet, action, null, nonce, this.IS_MAINNET);
@@ -180,7 +217,6 @@ export class ExchangeAPI {
     }
   }
 
-  //Update leverage. Set leverageMode to "cross" if you want cross leverage, otherwise it'll set it to "isolated by default"
   async updateLeverage(symbol: string, leverageMode: string, leverage: number): Promise<any> {
     try {
       const assetIndex = await this.getAssetIndex(symbol);
@@ -190,6 +226,10 @@ export class ExchangeAPI {
         isCross: leverageMode === "cross",
         leverage: leverage
       };
+
+      // L1 rate limit check
+      await this.beforeSendL1Action(action);
+
       const nonce = Date.now();
       const signature = await signL1Action(this.wallet, action, null, nonce, this.IS_MAINNET);
 
@@ -200,7 +240,6 @@ export class ExchangeAPI {
     }
   }
 
-  //Update how much margin there is on a perps position
   async updateIsolatedMargin(symbol: string, isBuy: boolean, ntli: number): Promise<any> {
     try {
       const assetIndex = await this.getAssetIndex(symbol);
@@ -210,6 +249,10 @@ export class ExchangeAPI {
         isBuy,
         ntli
       };
+
+      // L1 rate limit check
+      await this.beforeSendL1Action(action);
+
       const nonce = Date.now();
       const signature = await signL1Action(this.wallet, action, null, nonce, this.IS_MAINNET);
 
@@ -220,7 +263,6 @@ export class ExchangeAPI {
     }
   }
 
-  //Takes from the perps wallet and sends to another wallet without the $1 fee (doesn't touch bridge, so no fees)
   async usdTransfer(destination: string, amount: number): Promise<any> {
     try {
       const action = {
@@ -231,8 +273,11 @@ export class ExchangeAPI {
         amount: amount.toString(),
         time: Date.now()
       };
-      const signature = await signUsdTransferAction(this.wallet, action, this.IS_MAINNET);
 
+      // L1 rate limit check
+      await this.beforeSendL1Action(action);
+
+      const signature = await signUsdTransferAction(this.wallet, action, this.IS_MAINNET);
       const payload = { action, nonce: action.time, signature };
       return this.httpApi.makeRequest(payload, 1, this.walletAddress || this.wallet.address);
     } catch (error) {
@@ -240,7 +285,6 @@ export class ExchangeAPI {
     }
   }
 
-  //Transfer SPOT assets i.e PURR to another wallet (doesn't touch bridge, so no fees)
   async spotTransfer(destination: string, token: string, amount: string): Promise<any> {
     try {
       const action = {
@@ -252,17 +296,21 @@ export class ExchangeAPI {
         amount,
         time: Date.now()
       };
+
+      // L1 rate limit check
+      await this.beforeSendL1Action(action);
+
       const signature = await signUserSignedAction(
-        this.wallet,
-        action,
-        [
-          { name: 'hyperliquidChain', type: 'string' },
-          { name: 'destination', type: 'string' },
-          { name: 'token', type: 'string' },
-          { name: 'amount', type: 'string' },
-          { name: 'time', type: 'uint64' }
-        ],
-        'HyperliquidTransaction:SpotSend', this.IS_MAINNET
+          this.wallet,
+          action,
+          [
+            { name: 'hyperliquidChain', type: 'string' },
+            { name: 'destination', type: 'string' },
+            { name: 'token', type: 'string' },
+            { name: 'amount', type: 'string' },
+            { name: 'time', type: 'uint64' }
+          ],
+          'HyperliquidTransaction:SpotSend', this.IS_MAINNET
       );
 
       const payload = { action, nonce: action.time, signature };
@@ -272,7 +320,6 @@ export class ExchangeAPI {
     }
   }
 
-  //Withdraw USDC, this txn goes across the bridge and costs $1 in fees as of writing this
   async initiateWithdrawal(destination: string, amount: number): Promise<any> {
     try {
       const action = {
@@ -283,8 +330,11 @@ export class ExchangeAPI {
         amount: amount.toString(),
         time: Date.now()
       };
-      const signature = await signWithdrawFromBridgeAction(this.wallet, action, this.IS_MAINNET);
 
+      // L1 rate limit check
+      await this.beforeSendL1Action(action);
+
+      const signature = await signWithdrawFromBridgeAction(this.wallet, action, this.IS_MAINNET);
       const payload = { action, nonce: action.time, signature };
       return this.httpApi.makeRequest(payload, 1);
     } catch (error) {
@@ -292,7 +342,6 @@ export class ExchangeAPI {
     }
   }
 
-  //Transfer between spot and perpetual wallets (intra-account transfer)
   async transferBetweenSpotAndPerp(usdc: number, toPerp: boolean): Promise<any> {
     try {
       const action = {
@@ -302,6 +351,10 @@ export class ExchangeAPI {
           toPerp: toPerp
         }
       };
+
+      // L1 rate limit check
+      await this.beforeSendL1Action(action);
+
       const nonce = Date.now();
       const signature = await signL1Action(this.wallet, action, null, nonce, this.IS_MAINNET);
 
@@ -312,10 +365,13 @@ export class ExchangeAPI {
     }
   }
 
-  //Schedule a cancel for a given time (in ms) //Note: Only available once you've traded $1 000 000 in volume
   async scheduleCancel(time: number | null): Promise<any> {
     try {
       const action = { type: ExchangeType.SCHEDULE_CANCEL, time };
+
+      // L1 rate limit check
+      await this.beforeSendL1Action(action);
+
       const nonce = Date.now();
       const signature = await signL1Action(this.wallet, action, null, nonce, this.IS_MAINNET);
 
@@ -326,7 +382,6 @@ export class ExchangeAPI {
     }
   }
 
-  //Transfer between vault and perpetual wallets (intra-account transfer)
   async vaultTransfer(vaultAddress: string, isDeposit: boolean, usd: number): Promise<any> {
     try {
       const action = {
@@ -335,6 +390,10 @@ export class ExchangeAPI {
         isDeposit,
         usd
       };
+
+      // L1 rate limit check
+      await this.beforeSendL1Action(action);
+
       const nonce = Date.now();
       const signature = await signL1Action(this.wallet, action, null, nonce, this.IS_MAINNET);
 
@@ -351,6 +410,10 @@ export class ExchangeAPI {
         type: ExchangeType.SET_REFERRER,
         code
       };
+
+      // L1 rate limit check
+      await this.beforeSendL1Action(action);
+
       const nonce = Date.now();
       const signature = await signL1Action(this.wallet, action, null, nonce, this.IS_MAINNET);
 

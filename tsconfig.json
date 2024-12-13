@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     "target": "es2020",
-    "module": "commonjs",
+    "module": "esnext",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -10,8 +10,10 @@
     "declaration": true,
     "sourceMap": true,
     "resolveJsonModule": true,
-    "moduleResolution": "node"
+    "moduleResolution": "node",
+    "isolatedModules": true,
+    "allowSyntheticDefaultImports": true
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "**/*.spec.ts"]
+  "include": ["src/**/*", "test/**/*"],
+  "exclude": ["node_modules"]
 }

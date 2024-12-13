@@ -1,8 +1,8 @@
 import { ethers } from 'ethers';
 import { InfoAPI } from './info';
 import { ExchangeAPI } from './exchange';
-import { OrderResponse, CancelOrderRequest, OrderRequest, OrderType, UserOpenOrders } from '../types';
-import { CancelOrderResponse } from '../utils/signing'
+import { CancelOrderRequest, OrderRequest, OrderResponse, OrderType, UserOpenOrders } from '../types';
+import { CancelOrderResponse } from '../utils/signing';
 import { SymbolConversion } from '../utils/symbolConversion';
 
 export class CustomOperations {
@@ -11,8 +11,15 @@ export class CustomOperations {
     private wallet: ethers.Wallet;
     private symbolConversion: SymbolConversion;
     private readonly walletAddress: string | null;
+    private DEFAULT_SLIPPAGE = 0.05;
 
-    constructor(exchange: ExchangeAPI, infoApi: InfoAPI, privateKey: string, symbolConversion: SymbolConversion, walletAddress: string | null = null) {
+    constructor(
+        exchange: ExchangeAPI,
+        infoApi: InfoAPI,
+        privateKey: string,
+        symbolConversion: SymbolConversion,
+        walletAddress: string | null = null
+    ) {
         this.exchange = exchange;
         this.infoApi = infoApi;
         this.wallet = new ethers.Wallet(privateKey);
@@ -21,43 +28,36 @@ export class CustomOperations {
     }
 
     async cancelAllOrders(symbol?: string): Promise<CancelOrderResponse> {
-        try {
-            const address = this.walletAddress || this.wallet.address;
-            const openOrders: UserOpenOrders = await this.infoApi.getUserOpenOrders(address);
+        const address = this.walletAddress || this.wallet.address;
+        const openOrders: UserOpenOrders = await this.infoApi.getUserOpenOrders(address);
 
-            let ordersToCancel: UserOpenOrders;
-            
-            for (let order of openOrders) {
-                order.coin = await this.symbolConversion.convertSymbol(order.coin);
-            }
-
-            if (symbol) {
-                ordersToCancel = openOrders.filter(order => order.coin === symbol);
-            } else {
-                ordersToCancel = openOrders;
-            }
-
-            if (ordersToCancel.length === 0) {
-                throw new Error('No orders to cancel');
-            }
-
-            const cancelRequests: CancelOrderRequest[] = ordersToCancel.map(order => ({
-                coin: order.coin,
-                o: order.oid
-            }));
-
-            const response = await this.exchange.cancelOrder(cancelRequests);
-            return response;
-        } catch (error) {
-            throw error;
+        // Convert symbols once
+        for (const order of openOrders) {
+            order.coin = await this.symbolConversion.convertSymbol(order.coin);
         }
+
+        let ordersToCancel: UserOpenOrders;
+        if (symbol) {
+            ordersToCancel = openOrders.filter(order => order.coin === symbol);
+        } else {
+            ordersToCancel = openOrders;
+        }
+
+        if (ordersToCancel.length === 0) {
+            throw new Error('No orders to cancel');
+        }
+
+        const cancelRequests: CancelOrderRequest[] = ordersToCancel.map(order => ({
+            coin: order.coin,
+            o: order.oid
+        }));
+
+        return this.exchange.cancelOrder(cancelRequests);
     }
 
     async getAllAssets(): Promise<{ perp: string[], spot: string[] }> {
-        return await this.symbolConversion.getAllAssets();
+        return this.symbolConversion.getAllAssets();
     }
-
-    private DEFAULT_SLIPPAGE = 0.05;
 
     private async getSlippagePrice(
         symbol: string,
@@ -65,21 +65,23 @@ export class CustomOperations {
         slippage: number,
         px?: number
     ): Promise<number> {
+        // symbol is already external (BTC-PERP), convert it once for internal usage
         const convertedSymbol = await this.symbolConversion.convertSymbol(symbol);
-        if (!px) {
+
+        let price = px;
+        if (!price) {
             const allMids = await this.infoApi.getAllMids();
-            px = Number(allMids[convertedSymbol]);
+            price = Number(allMids[convertedSymbol]);
         }
 
         const isSpot = symbol.includes("-SPOT");
 
-        //If not isSpot count how many decimals price has to use the same amount for rounding 
-        const decimals = px.toString().split('.')[1]?.length || 0;
+        const decimals = (price?.toString().split('.')[1]?.length || 0);
+        // Ensure decimals - 1 is never negative
+        const roundingDecimals = Math.max(isSpot ? 8 : decimals - 1, 0);
 
-        console.log(decimals)
-
-        px *= isBuy ? (1 + slippage) : (1 - slippage);
-        return Number(px.toFixed(isSpot ? 8 : decimals-1));
+        price = price * (isBuy ? (1 + slippage) : (1 - slippage));
+        return Number(price.toFixed(roundingDecimals));
     }
 
     async marketOpen(
@@ -90,10 +92,10 @@ export class CustomOperations {
         slippage: number = this.DEFAULT_SLIPPAGE,
         cloid?: string
     ): Promise<OrderResponse> {
+        // Convert once at start
         const convertedSymbol = await this.symbolConversion.convertSymbol(symbol);
-        const slippagePrice = await this.getSlippagePrice(convertedSymbol, isBuy, slippage, px);
-        console.log("Slippage Price: ", slippagePrice)
-        
+        const slippagePrice = await this.getSlippagePrice(symbol, isBuy, slippage, px);
+
         const orderRequest: OrderRequest = {
             coin: convertedSymbol,
             is_buy: isBuy,
@@ -106,7 +108,7 @@ export class CustomOperations {
         if (cloid) {
             orderRequest.cloid = cloid;
         }
-        console.log(orderRequest)
+
         return this.exchange.placeOrder(orderRequest);
     }
 
@@ -117,22 +119,24 @@ export class CustomOperations {
         slippage: number = this.DEFAULT_SLIPPAGE,
         cloid?: string
     ): Promise<OrderResponse> {
+        // Convert once
         const convertedSymbol = await this.symbolConversion.convertSymbol(symbol);
         const address = this.walletAddress || this.wallet.address;
         const positions = await this.infoApi.perpetuals.getClearinghouseState(address);
+
         for (const position of positions.assetPositions) {
             const item = position.position;
-            if (convertedSymbol !== item.coin) {
-                continue;
-            }
+            if (convertedSymbol !== item.coin) continue;
+
             const szi = parseFloat(item.szi);
+            if (szi === 0) {
+                throw new Error(`No position to close for ${convertedSymbol}`);
+            }
+
             const closeSize = size || Math.abs(szi);
             const isBuy = szi < 0;
-            
-            // Get aggressive Market Price
-            const slippagePrice = await this.getSlippagePrice(convertedSymbol, isBuy, slippage, px);
-            
-            // Market Order is an aggressive Limit Order IoC
+            const slippagePrice = await this.getSlippagePrice(symbol, isBuy, slippage, px);
+
             const orderRequest: OrderRequest = {
                 coin: convertedSymbol,
                 is_buy: isBuy,
@@ -148,29 +152,29 @@ export class CustomOperations {
 
             return this.exchange.placeOrder(orderRequest);
         }
-        
+
         throw new Error(`No position found for ${convertedSymbol}`);
     }
 
     async closeAllPositions(slippage: number = this.DEFAULT_SLIPPAGE): Promise<OrderResponse[]> {
-        try {
-            const address = this.walletAddress || this.wallet.address;
-            const positions = await this.infoApi.perpetuals.getClearinghouseState(address);
-            const closeOrders: Promise<OrderResponse>[] = [];
+        const address = this.walletAddress || this.wallet.address;
+        const positions = await this.infoApi.perpetuals.getClearinghouseState(address);
+        const closeOrders: Promise<OrderResponse>[] = [];
 
-            console.log(positions)
-
-            for (const position of positions.assetPositions) {
-                const item = position.position;
-                if (parseFloat(item.szi) !== 0) {
-                    const symbol = await this.symbolConversion.convertSymbol(item.coin, "forward");
-                    closeOrders.push(this.marketClose(symbol, undefined, undefined, slippage));
-                }
+        for (const position of positions.assetPositions) {
+            const item = position.position;
+            if (parseFloat(item.szi) !== 0) {
+                // Convert the coin forward to external symbol once
+                const symbol = await this.symbolConversion.convertSymbol(item.coin, "forward");
+                closeOrders.push(this.marketClose(symbol, undefined, undefined, slippage));
             }
-
-            return await Promise.all(closeOrders);
-        } catch (error) {
-            throw error;
         }
+
+        if (closeOrders.length === 0) {
+            // No positions to close, return empty array
+            return [];
+        }
+
+        return Promise.all(closeOrders);
     }
 }
