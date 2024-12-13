@@ -1,8 +1,7 @@
 import { encode } from '@msgpack/msgpack';
 import { ethers, getBytes, HDNodeWallet, keccak256, type Wallet } from 'ethers';
 
-import type { OrderType, Signature, OrderRequest, CancelOrderRequest, OrderWire } from '../types';
-import { IS_MAINNET } from '../config.ts';
+import type { Builder, Order, OrderType, OrderWire, Signature, CancelOrderRequest, Grouping } from '../types';
 
 const phantomDomain = {
     name: 'Exchange',
@@ -24,8 +23,8 @@ export function orderTypeToWire(orderType: OrderType): OrderType {
     } else if (orderType.trigger) {
         return {
             trigger: {
-                triggerPx: parseFloat(floatToWire(orderType.trigger.triggerPx)),
                 isMarket: orderType.trigger.isMarket,
+                triggerPx: floatToWire(Number(orderType.trigger.triggerPx)),
                 tpsl: orderType.trigger.tpsl,
             },
         };
@@ -61,10 +60,11 @@ export async function signL1Action(
     wallet: Wallet | HDNodeWallet,
     action: unknown,
     activePool: string | null,
-    nonce: number
+    nonce: number,
+    isMainnet: boolean,
 ): Promise<Signature> {
     const hash = actionHash(action, activePool, nonce);
-    const phantomAgent = constructPhantomAgent(hash, IS_MAINNET);
+    const phantomAgent = constructPhantomAgent(hash, isMainnet);
     const data = {
         domain: phantomDomain,
         types: agentTypes,
@@ -78,10 +78,11 @@ export async function signUserSignedAction(
     wallet: Wallet,
     action: any,
     payloadTypes: Array<{ name: string; type: string }>,
-    primaryType: string
+    primaryType: string,
+    isMainnet: boolean
 ): Promise<Signature> {
     action.signatureChainId = '0x66eee';
-    action.hyperliquidChain = IS_MAINNET ? 'Mainnet' : 'Testnet';
+    action.hyperliquidChain = isMainnet ? 'Mainnet' : 'Testnet';
     const data = {
         domain: {
             name: 'HyperliquidSignTransaction',
@@ -98,7 +99,7 @@ export async function signUserSignedAction(
     return signInner(wallet, data);
 }
 
-export async function signUsdTransferAction(wallet: Wallet, action: any): Promise<Signature> {
+export async function signUsdTransferAction(wallet: Wallet, action: any, isMainnet: boolean): Promise<Signature> {
     return signUserSignedAction(
         wallet,
         action,
@@ -108,11 +109,12 @@ export async function signUsdTransferAction(wallet: Wallet, action: any): Promis
             { name: 'amount', type: 'string' },
             { name: 'time', type: 'uint64' },
         ],
-        'HyperliquidTransaction:UsdSend'
+        'HyperliquidTransaction:UsdSend',
+        isMainnet
     );
 }
 
-export async function signWithdrawFromBridgeAction(wallet: Wallet, action: any): Promise<Signature> {
+export async function signWithdrawFromBridgeAction(wallet: Wallet, action: any, isMainnet: boolean): Promise<Signature> {
     return signUserSignedAction(
         wallet,
         action,
@@ -122,11 +124,12 @@ export async function signWithdrawFromBridgeAction(wallet: Wallet, action: any):
             { name: 'amount', type: 'string' },
             { name: 'time', type: 'uint64' },
         ],
-        'HyperliquidTransaction:Withdraw'
+        'HyperliquidTransaction:Withdraw',
+        isMainnet
     );
 }
 
-export async function signAgent(wallet: Wallet, action: any): Promise<Signature> {
+export async function signAgent(wallet: Wallet, action: any, isMainnet: boolean): Promise<Signature> {
     return signUserSignedAction(
         wallet,
         action,
@@ -136,7 +139,8 @@ export async function signAgent(wallet: Wallet, action: any): Promise<Signature>
             { name: 'agentName', type: 'string' },
             { name: 'nonce', type: 'uint64' },
         ],
-        'HyperliquidTransaction:ApproveAgent'
+        'HyperliquidTransaction:ApproveAgent',
+        isMainnet
     );
 }
 
@@ -180,7 +184,7 @@ export function getTimestampMs(): number {
     return Date.now();
 }
 
-export function orderRequestToOrderWire(order: OrderRequest, asset: number): OrderWire {
+export function orderToWire(order: Order, asset: number): OrderWire {
     const orderWire: OrderWire = {
         a: asset,
         b: order.is_buy,
@@ -193,6 +197,15 @@ export function orderRequestToOrderWire(order: OrderRequest, asset: number): Ord
         orderWire.c = order.cloid;
     }
     return orderWire;
+}
+
+export function orderWireToAction(orders: OrderWire[], grouping: Grouping = "na", builder?: Builder): any {
+    return {
+        type: 'order',
+        orders: orders,
+        grouping: grouping,
+        ...(builder !== undefined ? { builder: builder } : {})
+    };
 }
 
 export interface CancelOrderResponse {
@@ -209,13 +222,5 @@ export function cancelOrderToAction(cancelRequest: CancelOrderRequest): any {
     return {
         type: 'cancel',
         cancels: [cancelRequest],
-    };
-}
-
-export function orderWiresToOrderAction(orderWires: OrderWire[]): any {
-    return {
-        type: 'order',
-        orders: orderWires,
-        grouping: 'na',
     };
 }

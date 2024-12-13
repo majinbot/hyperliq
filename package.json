@@ -1,20 +1,14 @@
 {
-  "name": "hyperliquid-ts",
-  "version": "1.2.1",
-  "description": "Unofficial TypeScript SDK for Hyperliquid 🍧",
-  "main": "dist/index.js",
-  "module": "dist/index.js",
+  "name": "hyperliq",
+  "version": "1.4.1",
+  "description": "SDK for Hyperliquid API",
+  "main": "src/index.ts",
   "types": "dist/index.d.ts",
-  "type": "module",
-  "files": [
-    "dist"
-  ],
+  "files": ["src", "dist"],
   "scripts": {
-    "build": "bun build ./src/index.ts --outdir ./dist && bun run tsc --emitDeclarationOnly --outDir dist",
-    "test": "bun test",
-    "lint": "bun eslint . --ext .ts",
-    "format": "bun x prettier --write \"src/**/*.ts\"",
-    "prepublishOnly": "bun run build"
+    "build": "tsc",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "prepare": "npm run build"
   },
   "keywords": [
     "hyperliquid",
@@ -22,42 +16,29 @@
     "sdk",
     "rest",
     "websocket",
-    "quant",
     "trading",
     "crypto",
     "blockchain",
-    "dex",
-    "bun"
+    "dex"
   ],
-  "author": "majinbot",
+  "authors": ["Nomeida", "majinbot"],
   "license": "MIT",
   "dependencies": {
     "@msgpack/msgpack": "^3.0.0-beta2",
-    "axios": "^1.7.7",
+    "@types/ws": "^8.5.11",
+    "axios": "^1.7.2",
     "ethers": "^6.13.2",
-    "tasai": "^1.0.0"
+    "typescript": "^5.5.4",
+    "ws": "^8.18.0"
   },
-  "devDependencies": {
-    "@typescript-eslint/eslint-plugin": "^5.62.0",
-    "@typescript-eslint/parser": "^5.62.0",
-    "bun-types": "latest",
-    "date-fns": "^3.6.0",
-    "eslint": "^8.57.1",
-    "prettier": "^2.8.8",
-    "typescript": "^5.6.2"
-  },
-  "peerDependencies": {
-    "typescript": "^5.0.0"
-  },
-  "engines": {
-    "bun": ">=1.1.2x"
+  "directories": {
+    "test": "tests"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/majinbot/hl-sdk.git"
+    "url": "https://github.com/majinbot/hyperliq"
   },
-  "bugs": {
-    "url": "https://github.com/majinbot/hl-sdk/issues"
-  },
-  "homepage": "https://github.com/majinbot/hl-sdk#readme"
+  "devDependencies": {
+    "dotenv": "^16.4.5"
+  }
 }

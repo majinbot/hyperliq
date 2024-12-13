@@ -1,249 +1,262 @@
-# hl-sdk 🍧
+# Hyperliquid API SDK
 
-An unofficial TypeScript SDK for interacting with the Hyperliquid API.
+Typescript SDK to more easily interact with Hyperliquid's API
 
+All info on the Hyperliquid API can be found here: [HyperLiquid API Documentation](https://hyperliquid.gitbook.io/hyperliquid-docs)
 
 ## Installation
-[![npm version](https://badge.fury.io/js/hyperliquid-ts.svg)](https://badge.fury.io/js/hyperliquid-ts)
+
 ```bash
-npm install hyperliquid-ts
+npm install --save hyperliq
 ```
+
 
 
 ## Usage
+
+**API Agent Wallet Usage:** If you are using API Agent wallets everything works as normal but you need to add your actual account's wallet address in the Hyperliquid object field 'walletAddress'.
+
+If you don't do this you will be unable to use some of the SDK methods successfully. If you are using
+your own Private Key then it's not necessary as the SDK can derive your wallet address from the Private key.
 ```typescript
-import { HyperliquidAPI } from 'hyperliquid-ts';
+const { Hyperliquid } = require('hyperliq');
 
-const api = new HyperliquidAPI('YOUR_PRIVATE_KEY');
+const sdk = new Hyperliquid(
+  <private_key - string>,
+  <testnet - boolean (OPTIONAL)>,
+  <walletAddress - string (Required if you are using an API Agent Wallet, otherwise not necessary)>
+);
 
-// Example: Get all mids
-api.info.getAllMids().then(allMids => {
+// Use the SDK methods
+sdk.info.getAllMids().then(allMids => {
   console.log(allMids);
 });
 ```
-Note: Private key is optional but required for authenticated endpoints.
+**Note:** You don't have to provide your private key, but it is required if you want to
+use the exchange API to place, cancel or modify orders or access your accounts assets.
 
 
-## APIs
-The SDK is structured into several major components/classes covering the main HL APIs:
 
-- info: General information endpoints
-  - general: General market information
-  - spot: Spot market information
-  - perpetuals: Perpetuals market information
-- exchange: Trading and account management endpoints
-- subscriptions: WebSocket subscriptions
-- custom: Custom utility methods and endpoints
+## Symbol Naming Convention
 
+Instead of using native symbols (which can be confusing, like @1, @4, @5 for spot and only the coin name for perps), we've implemented a more intuitive naming system:
 
-## Info API
-Access general market information:
-```typescript
-// Get all mids
-api.info.getAllMids();
+- For perpetuals: `<coin>-PERP` (e.g., BTC-PERP, ETH-PERP)
+- For spot: `<coin>-SPOT` (e.g., PURR-SPOT, BTC-SPOT)
 
-// Get L2 order book
-api.info.getL2Book('BTC-PERP');
-
-// Get user open orders
-api.info.getUserOpenOrders('USER_ADDRESS');
-
-// Get trade info
-const oid = 123456
-api.info.getTradeInfo('USER_ADDRESS', oid);
-```
+This convention makes it easier to distinguish between spot and perpetual markets.
 
 
-## Perpetuals Info API
-Access information specific to perpetual markets:
 
-```typescript
-// Get perpetuals metadata
-api.info.perpetuals.getMeta();
-
-// Get perpetuals metadata and asset contexts
-api.info.perpetuals.getMetaAndAssetCtxs();
-
-// Get user's perpetuals clearinghouse state
-api.info.perpetuals.getClearinghouseState('USER_ADDRESS');
-
-// Get user funding information
-api.info.perpetuals.getUserFunding('USER_ADDRESS', startTime, endTime);
-
-// Get user non-funding ledger updates
-api.info.perpetuals.getUserNonFundingLedgerUpdates('USER_ADDRESS', startTime, endTime);
-
-// Get funding history for a specific coin
-api.info.perpetuals.getFundingHistory('BTC-PERP', startTime, endTime);
-```
+## Examples
 
 
-## Spot Info
-```typescript
-// Get spot metadata
-api.info.spot.getSpotMeta();
+### Exchange API Methods
 
-// Get spot clearinghouse state for a user
-api.info.spot.getSpotClearinghouseState('USER_ADDRESS');
-
-// Get spot metadata and asset contexts
-api.info.spot.getSpotMetaAndAssetCtxs();
-```
-
-
-## Leaderboard API
-Access and filter the trading leaderboard:
-
-```typescript
-// Get the current leaderboard
-api.leaderboard.getLeaderboard();
-
-// Get filtered and sorted leaderboard
-api.leaderboard.getFilteredAndSortedLeaderboard({
-  timeWindow: 'day',
-  minAccountValue: 1000,
-  minVolume: 10000,
-  maxTrades: 100
-}, 'pnl');
-
-// Get extended trader information
-api.leaderboard.getExtendedTraderInfo(traderEntry, 'week');
-
-// Get a trader's best trade
-api.leaderboard.getBestTrade('TRADER_ADDRESS', 'month');
-```
-
-### Advanced usage
-The Leaderboard API also provide methods for more detailed analysis:
-```typescript
-// Get a trader's trade count
-api.leaderboard.getTraderTradeCount('TRADER_ADDRESS', startTime, endTime);
-
-// Get a trader's open positions
-api.leaderboard.getTraderOpenPositions('TRADER_ADDRESS');
-```
-
-Note: The leaderboard data is cached for 24 hours to improve performance. You can manually clear the cache if needed:
-```typescript
-await api.leaderboard.clearCache();
-```
-
-
-## Symbol Conversion
-The SDK now includes a SymbolConverter to handle any differences between exchange and internal symbol representations:
-
-```typescript
-// Convert from exchange to internal format
-api.info.convertSymbol('BTC-0', 'internal');
-
-// Convert from internal to exchange format
-api.info.convertSymbol('BTC-PERP-0', 'reverse');
-
-// Get all available assets
-const assets = api.info.getAllAssets();
-console.log(assets.perp); // List of perpetual assets
-console.log(assets.spot); // List of spot assets
-```
-Please refer to [SYMBOLS.md](SYMBOLS.md) for more detailed info
-
-
-## Exchange API
-Manage orders and perform account actions:
 ```typescript
 // Place an order
-api.exchange.placeOrder({
+sdk.exchange.placeOrder({
   coin: 'BTC-PERP',
   is_buy: true,
   sz: 1,
   limit_px: 30000,
   order_type: { limit: { tif: 'Gtc' } },
-  reduce_only: false
+  reduce_only: false,
+  vaultAddress: '0x...' // optional
+}).then(placeOrderResult => {
+  console.log(placeOrderResult);
+}).catch(error => {
+  console.error('Error placing order:', error);
+});
+
+// Multiple orders can be passed as an array or order objects
+// The grouping, vaultAddress and builder properties are optional
+// Grouping determines how multiple orders are treated by the exchange endpoint in terms
+// of transaction priority, execution and dependency. Defaults to 'na' if not specified.
+sdk.exchange.placeOrder({
+  orders: [{
+    coin: 'BTC-PERP',
+    is_buy: true,
+    sz: 1,
+    limit_px: 30000,
+    order_type: { limit: { tif: 'Gtc' } },
+    reduce_only: false
+  }],
+  vaultAddress: '0x...',
+  grouping: 'normalTpsl',
+  builder: {
+    address: '0x...',
+    fee: 999,
+  }
+}).then(placeOrderResult => {
+  console.log(placeOrderResult);
+}).catch(error => {
+  console.error('Error placing order:', error);
 });
 
 // Cancel an order
-api.exchange.cancelOrder({
+sdk.exchange.cancelOrder({
   coin: 'BTC-PERP',
   o: 123456 // order ID
+}).then(cancelOrderResult => {
+  console.log(cancelOrderResult);
+}).catch(error => {
+  console.error('Error cancelling order:', error);
 });
 
-// Transfer between spot and perpetual accounts
-api.exchange.transferBetweenSpotAndPerp(100, true); // 100 USDC from spot to perp
+// Transfer between perpetual and spot accounts
+sdk.exchange.transferBetweenSpotAndPerp(100, true) // Transfer 100 USDC from spot to perp
+  .then(transferResult => {
+    console.log(transferResult);
+  }).catch(error => {
+    console.error('Error transferring funds:', error);
+  });
 ```
+All methods supported can be found here: [Hyperliquid Exchange Endpoint API Documentation](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint)
 
 
-## WebSocket Subscriptions
-Subscribe to real-time data:
+
+### General Info Methods
+
 ```typescript
-// Subscribe to all mids
-api.subscriptions.subscribeToAllMids(data => {
-  console.log('All mids update:', data);
+// Get all mids
+sdk.info.getAllMids().then(allMids => {
+  console.log(allMids);
+}).catch(error => {
+  console.error('Error getting all mids:', error);
 });
 
-// Subscribe to trades for a specific symbol
-api.subscriptions.subscribeToTrades('BTC-PERP', trades => {
-  console.log('New trades:', trades);
+// Get user open orders
+sdk.info.getUserOpenOrders('user_address_here').then(userOpenOrders => {
+  console.log(userOpenOrders);
+}).catch(error => {
+  console.error('Error getting user open orders:', error);
 });
 
-// Unsubscribe from trades
-api.subscriptions.unsubscribeFromTrades('BTC-PERP', callbackFunction);
+// Get L2 order book
+sdk.info.getL2Book('BTC-PERP').then(l2Book => {
+  console.log(l2Book);
+}).catch(error => {
+  console.error('Error getting L2 book:', error);
+});
+```
+
+All methods supported can be found here: [Hyperliquid Info Endpoint API Documentation](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint)
+
+
+### WebSocket Methods
+
+```typescript
+const { Hyperliquid } = require('hyperliquid');
+
+async function testWebSocket() {
+    // Create a new Hyperliquid instance
+    // You can pass a private key here if you need authenticated access
+    const sdk = new Hyperliquid();
+
+    try {
+        // Connect to the WebSocket
+        await sdk.connect();
+        console.log('Connected to WebSocket');
+
+        // Subscribe to get latest prices for all coins
+        sdk.subscriptions.subscribeToAllMids((data) => {
+            console.log('Received trades data:', data);
+        });
+
+        // Get updates anytime the user gets new fills
+        sdk.subscriptions.subscribeToUserFills("<wallet_address_here>", (data) => {
+            console.log('Received user fills data:', data);
+        });
+
+        // Get updates on 1 minute ETH-PERP candles
+        sdk.subscriptions.subscribeToCandle("BTC-PERP", "1m", (data) => {
+            console.log('Received candle data:', data);
+        });
+
+        // Keep the script running
+        await new Promise(() => {});
+    } catch (error) {
+        console.error('Error:', error);
+    }
+}
+
+testWebSocket();
 ```
 
 
-## Custom Utilities
+### Spot Info Methods
+
+```typescript
+//Get spot metadata
+sdk.info.spot.getSpotMeta().then(spotMeta => {
+  console.log(spotMeta);
+}).catch(error => {
+  console.error('Error getting spot metadata:', error);
+});
+
+// Get spot clearinghouse state
+sdk.info.spot.getSpotClearinghouseState('user_address_here').then(spotClearinghouseState => {
+  console.log(spotClearinghouseState);
+}).catch(error => {
+  console.error('Error getting spot clearinghouse state:', error);
+});
+```
+All methods supported can be found here: [Hyperliquid Spot Info Endpoint API Documentation](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint/spot)
+
+
+
+### Perpetuals Info Methods
+
+```typescript
+// Get perpetuals metadata
+sdk.info.perpetuals.getMeta().then(perpsMeta => {
+  console.log(perpsMeta);
+}).catch(error => {
+  console.error('Error getting perpetuals metadata:', error);
+});
+
+// Get user's perpetuals account summary
+sdk.info.perpetuals.getClearinghouseState('user_address_here').then(clearinghouseState => {
+  console.log(clearinghouseState);
+}).catch(error => {
+  console.error('Error getting clearinghouse state:', error);
+});
+```
+All methods supported can be found here: [Hyperliquid Perpetuals Info Endpoint API Documentation](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint/perpetuals)
+
+
+### Custom Methods
+
 ```typescript
 // Cancel all orders
-api.custom.cancelAllOrders();
+sdk.custom.cancelAllOrders().then(cancelAllResult => {
+  console.log(cancelAllResult);
+}).catch(error => {
+  console.error('Error cancelling all orders:', error);
+});
 
 // Cancel all orders for a specific symbol
-api.custom.cancelAllOrders('BTC-PERP');
+sdk.custom.cancelAllOrders('BTC-PERP').then(cancelAllBTCResult => {
+  console.log(cancelAllBTCResult);
+}).catch(error => {
+  console.error('Error cancelling all BTC-PERP orders:', error);
+});
 
 // Get all tradable assets
-const assets = api.custom.getAllAssets();
+const allAssets = sdk.custom.getAllAssets();
+console.log(allAssets);
 ```
+All Custom methods are listed above. These are custom methods that are not part of the official Hyperliquid API. As more are added we will add examples for them here.
 
-
-## Error Handling
-The SDK uses custom error types. Wrap API calls in try-catch blocks:
-```typescript
-try {
-  const result = await api.exchange.placeOrder(/* ... */);
-} catch (error) {
-  if (error instanceof HyperliquidAPIError) {
-    console.error('API Error:', error.message, 'Code:', error.code);
-  } else {
-    console.error('Unexpected error:', error);
-  }
-}
-```
-
-
-## Rate Limiting
-The SDK implements rate limiting to comply with API restrictions. You don't need to manage this manually.
-
-
-## WebSocket Connection
-The WebSocket connection is managed automatically. Use `connect` and `disconnect` methods if you need manual control:
-```typescript
-await api.connect();
-// ... perform operations
-api.disconnect();
-```
-
-
-## Types
-The SDK provides TypeScript types for all API responses and parameters. Import them as needed:
-```typescript
-import type { OrderRequest, UserOpenOrders } from 'hyperliquid-ts';
-```
 
 
 ## Documentation
-For detailed API documentation, refer to the official [Hyperliquid API docs](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api).
 
+For more detailed documentation on all available methods and their parameters, please refer to the [official Hyperliquid API documentation](https://hyperliquid.gitbook.io/hyperliquid-docs/).
 
-## Contributing
-Contributions are welcome! Please submit pull requests or open issues on the GitHub repository.
 
 
 ## License
-This project is licensed under the MIT License.
+
+MIT

@@ -1,92 +1,82 @@
+import { RateLimiter } from '../utils/rateLimiter';
 import { GeneralInfoAPI } from './info/general';
 import { SpotInfoAPI } from './info/spot';
-import { PerpsInfoAPI } from './info/perps';
+import { PerpetualsInfoAPI } from './info/perpetuals';
 import { HttpApi } from '../utils/helpers';
-import { SymbolConverter } from '../utils/symbolConverter';
-import { BaseInfoAPI } from './info/base';
-import type {
-    AllMids,
+import { SymbolConversion } from '../utils/symbolConversion';
+import { 
+    AllMids, 
     UserOpenOrders,
-    FrontendOpenOrders,
-    UserFills,
-    UserRateLimit,
-    OrderStatus,
-    L2Book,
-    CandleSnapshot,
+    FrontendOpenOrders, 
+    UserFills, 
+    UserRateLimit, 
+    OrderStatus, 
+    L2Book, 
+    CandleSnapshot 
 } from '../types';
+import { ENDPOINTS } from '../constants';
 
-export class InfoAPI extends BaseInfoAPI {
-    public readonly generalAPI: GeneralInfoAPI;
-    public readonly spot: SpotInfoAPI;
-    public readonly perpetuals: PerpsInfoAPI;
+export class InfoAPI {
+    public spot: SpotInfoAPI;
+    public perpetuals: PerpetualsInfoAPI;
+    private readonly httpApi: HttpApi;
+    private generalAPI: GeneralInfoAPI;
+    private readonly symbolConversion: SymbolConversion;
 
-    constructor(httpApi: HttpApi) {
-        const symbolConverter = new SymbolConverter();
-        super(httpApi, symbolConverter);
-
-        this.generalAPI = new GeneralInfoAPI(this.httpApi, this.symbolConverter);
-        this.spot = new SpotInfoAPI(this.httpApi, this.symbolConverter);
-        this.perpetuals = new PerpsInfoAPI(this.httpApi, this.symbolConverter);
+    constructor(baseURL: string, rateLimiter: RateLimiter, symbolConversion: SymbolConversion) {
+        this.httpApi = new HttpApi(baseURL, ENDPOINTS.INFO, rateLimiter);
+        this.symbolConversion = symbolConversion;
+        
+        this.generalAPI = new GeneralInfoAPI(this.httpApi, this.symbolConversion);
+        this.spot = new SpotInfoAPI(this.httpApi, this.symbolConversion);
+        this.perpetuals = new PerpetualsInfoAPI(this.httpApi, this.symbolConversion);
     }
 
-    // Delegate methods to GeneralInfoAPI
-    async getAllMids(raw_response: boolean = false): Promise<AllMids> {
-        return this.generalAPI.getAllMids(raw_response);
+    async getAssetIndex(assetName: string): Promise<number | undefined> {
+        return await this.symbolConversion.getAssetIndex(assetName);
     }
 
-    async getUserOpenOrders(user: string, raw_response: boolean = false): Promise<UserOpenOrders> {
-        return this.generalAPI.getUserOpenOrders(user, raw_response);
+    async getInternalName(exchangeName: string): Promise<string | undefined> {
+        return await this.symbolConversion.convertSymbol(exchangeName);
     }
 
-    async getFrontendOpenOrders(user: string, raw_response: boolean = false): Promise<FrontendOpenOrders> {
-        return this.generalAPI.getFrontendOpenOrders(user, raw_response);
+    async getAllAssets(): Promise<{ perp: string[], spot: string[] }> {
+        return await this.symbolConversion.getAllAssets();
     }
 
-    async getUserFills(user: string, raw_response: boolean = false): Promise<UserFills> {
-        return this.generalAPI.getUserFills(user, raw_response);
+    async getAllMids(rawResponse: boolean = false): Promise<AllMids> {
+        return this.generalAPI.getAllMids(rawResponse);
     }
 
-    async getTradeInfo(user: string, orderId: number): Promise<any> {
-        return this.generalAPI.getTradeInfo(user, orderId);
+    async getUserOpenOrders(user: string, rawResponse: boolean = false): Promise<UserOpenOrders> {
+        return this.generalAPI.getUserOpenOrders(user, rawResponse);
     }
 
-    async getUserFillsByTime(
-        user: string,
-        startTime: number,
-        endTime: number,
-        raw_response: boolean = false
-    ): Promise<UserFills> {
-        return this.generalAPI.getUserFillsByTime(user, startTime, endTime, raw_response);
+    async getFrontendOpenOrders(user: string, rawResponse: boolean = false): Promise<FrontendOpenOrders> {
+        return this.generalAPI.getFrontendOpenOrders(user, rawResponse);
     }
 
-    async getSpotUserFillsByTime(
-        user: string,
-        startTime: number,
-        endTime: number,
-        raw_response: boolean = false
-    ): Promise<UserFills> {
-        return this.generalAPI.getUserFillsByTime(user, startTime, endTime, raw_response);
+    async getUserFills(user: string, rawResponse: boolean = false): Promise<UserFills> {
+        return this.generalAPI.getUserFills(user, rawResponse);
     }
 
-    async getUserRateLimit(user: string, raw_response: boolean = false): Promise<UserRateLimit> {
-        return this.generalAPI.getUserRateLimit(user, raw_response);
+    async getUserFillsByTime(user: string, startTime: number, endTime: number, rawResponse: boolean = false): Promise<UserFills> {
+        return this.generalAPI.getUserFillsByTime(user, startTime, endTime, rawResponse);
     }
 
-    async getOrderStatus(user: string, oid: number | string, raw_response: boolean = false): Promise<OrderStatus> {
-        return this.generalAPI.getOrderStatus(user, oid, raw_response);
+    async getUserRateLimit(user: string, rawResponse: boolean = false): Promise<UserRateLimit> {
+        return this.generalAPI.getUserRateLimit(user, rawResponse);
     }
 
-    async getL2Book(coin: string, raw_response: boolean = false): Promise<L2Book> {
-        return this.generalAPI.getL2Book(coin, raw_response);
+    async getOrderStatus(user: string, oid: number | string, rawResponse: boolean = false): Promise<OrderStatus> {
+        return this.generalAPI.getOrderStatus(user, oid, rawResponse);
     }
 
-    async getCandleSnapshot(
-        coin: string,
-        interval: string,
-        startTime: number,
-        endTime: number,
-        raw_response: boolean = false
-    ): Promise<CandleSnapshot> {
-        return this.generalAPI.getCandleSnapshot(coin, interval, startTime, endTime, raw_response);
+    async getL2Book(coin: string, rawResponse: boolean = false): Promise<L2Book> {
+        return this.generalAPI.getL2Book(coin, rawResponse);
+    }
+
+    async getCandleSnapshot(coin: string, interval: string, startTime: number, endTime: number, rawResponse: boolean = false): Promise<CandleSnapshot> {
+        return this.generalAPI.getCandleSnapshot(coin, interval, startTime, endTime, rawResponse);
     }
 }

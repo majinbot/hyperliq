@@ -1,130 +1,92 @@
-import type {
+import {
     AllMids,
-    UserOpenOrders,
-    FrontendOpenOrders,
-    UserFills,
-    UserRateLimit,
-    OrderStatus,
-    L2Book,
     CandleSnapshot,
+    FrontendOpenOrders,
+    L2Book,
+    OrderStatus,
+    UserFills,
+    UserOpenOrders,
+    UserRateLimit,
 } from '../../types';
 import { HttpApi } from '../../utils/helpers';
-import { INFO_TYPES } from '../../constants';
-import { BaseInfoAPI } from './base.ts';
-import type { SymbolConverter } from '../../utils/symbolConverter.ts';
+import { SymbolConversion } from '../../utils/symbolConversion';
+import { InfoType } from '../../constants';
 
-export class GeneralInfoAPI extends BaseInfoAPI {
-    constructor(httpApi: HttpApi, symbolConverter: SymbolConverter) {
-        super(httpApi, symbolConverter);
+export class GeneralInfoAPI {
+    private httpApi: HttpApi;
+    private symbolConversion: SymbolConversion;
+
+    constructor(httpApi: HttpApi, symbolConversion: SymbolConversion) {
+        this.httpApi = httpApi;
+        this.symbolConversion = symbolConversion;
     }
 
-    async getAllMids(raw_response: boolean = false): Promise<AllMids> {
-        const response = await this.httpApi.makeRequest({
-            type: INFO_TYPES.ALL_MIDS,
-        });
-        return raw_response ? response : this.convertAllMids(response);
+    async getAllMids(rawResponse: boolean = false): Promise<AllMids> {
+        const response = await this.httpApi.makeRequest({ type: InfoType.ALL_MIDS });
+
+        if (rawResponse) {
+            return response;
+        } else {
+            const convertedResponse: any = {};
+            for (const [key, value] of Object.entries(response)) {
+                const convertedKey = await this.symbolConversion.convertSymbol(key);
+                convertedResponse[convertedKey] = parseFloat(value as string);
+            }
+            return convertedResponse;
+        }
     }
 
-    async getUserOpenOrders(user: string, raw_response: boolean = false): Promise<UserOpenOrders> {
-        const response = await this.httpApi.makeRequest({
-            type: INFO_TYPES.OPEN_ORDERS,
-            user,
-        });
-        return raw_response ? response : this.convertSymbolsInObject(response);
+    async getUserOpenOrders(user: string, rawResponse: boolean = false): Promise<UserOpenOrders> {
+        const response = await this.httpApi.makeRequest({ type: InfoType.OPEN_ORDERS, user: user });
+        return rawResponse ? response : await this.symbolConversion.convertResponse(response);
     }
 
-    async getFrontendOpenOrders(user: string, raw_response: boolean = false): Promise<FrontendOpenOrders> {
-        const response = await this.httpApi.makeRequest({ type: INFO_TYPES.FRONTEND_OPEN_ORDERS, user }, 20);
-        return raw_response ? response : this.convertSymbolsInObject(response);
+    async getFrontendOpenOrders(user: string, rawResponse: boolean = false): Promise<FrontendOpenOrders> {
+        const response = await this.httpApi.makeRequest({ type: InfoType.FRONTEND_OPEN_ORDERS, user: user }, 20);
+        return rawResponse ? response : await this.symbolConversion.convertResponse(response);
     }
 
-    async getUserFills(user: string, raw_response: boolean = false): Promise<UserFills> {
-        const response = await this.httpApi.makeRequest({ type: INFO_TYPES.USER_FILLS, user }, 20);
-        return raw_response ? response : this.convertSymbolsInObject(response);
+    async getUserFills(user: string, rawResponse: boolean = false): Promise<UserFills> {
+        const response = await this.httpApi.makeRequest({ type: InfoType.USER_FILLS, user: user }, 20);
+        return rawResponse ? response : await this.symbolConversion.convertResponse(response);
     }
 
-    async getUserFillsByTime(
-        user: string,
-        startTime: number,
-        endTime?: number,
-        raw_response: boolean = false
-    ): Promise<UserFills> {
-        const params: {
-            user: string;
-            startTime: number;
-            type: typeof INFO_TYPES.USER_FILLS_BY_TIME;
-            endTime?: number;
-        } = {
-            user,
+    async getUserFillsByTime(user: string, startTime: number, endTime?: number, rawResponse: boolean = false): Promise<UserFills> {
+        let params: { user: string; startTime: number; type: string; endTime?: number } = {
+            user: user,
             startTime: Math.round(startTime),
-            type: INFO_TYPES.USER_FILLS_BY_TIME,
+            type: InfoType.USER_FILLS_BY_TIME
         };
-
-        if (endTime !== undefined) {
-            params.endTime = Math.round(endTime);
+        
+        if (endTime) {
+            params.endTime = Math.round(endTime)
         }
 
         const response = await this.httpApi.makeRequest(params, 20);
-        return raw_response ? response : this.convertSymbolsInObject(response);
+        return rawResponse ? response : await this.symbolConversion.convertResponse(response);
     }
 
-    async getTradeInfo(user: string, orderId: number): Promise<any> {
-        const response = await this.httpApi.makeRequest({
-            type: INFO_TYPES.TRADE_INFO,
-            user,
-            orderId,
+    async getUserRateLimit(user: string, rawResponse: boolean = false): Promise<UserRateLimit> {
+        const response = await this.httpApi.makeRequest({ type: InfoType.USER_RATE_LIMIT, user: user }, 20);
+        return rawResponse ? response : await this.symbolConversion.convertResponse(response);
+    }
+
+    async getOrderStatus(user: string, oid: number | string, rawResponse: boolean = false): Promise<OrderStatus> {
+        const response = await this.httpApi.makeRequest({ type: InfoType.ORDER_STATUS, user: user, oid: oid });
+        return rawResponse ? response : await this.symbolConversion.convertResponse(response);
+    }
+
+    async getL2Book(coin: string, rawResponse: boolean = false): Promise<L2Book> {
+        const response = await this.httpApi.makeRequest({ type: InfoType.L2_BOOK, coin: await this.symbolConversion.convertSymbol(coin, "reverse") });
+        return rawResponse ? response : await this.symbolConversion.convertResponse(response);
+    }
+
+    async getCandleSnapshot(coin: string, interval: string, startTime: number, endTime: number, rawResponse: boolean = false): Promise<CandleSnapshot> {
+        const response = await this.httpApi.makeRequest({ 
+            type: InfoType.CANDLE_SNAPSHOT, 
+            req: { coin: await this.symbolConversion.convertSymbol(coin, "reverse"), interval: interval, startTime: startTime, endTime: endTime } 
         });
-        return this.convertSymbolsInObject(response);
-    }
 
-    async getUserRateLimit(user: string, raw_response: boolean = false): Promise<UserRateLimit> {
-        const response = await this.httpApi.makeRequest({ type: INFO_TYPES.USER_RATE_LIMIT, user }, 20);
-        return raw_response ? response : this.convertSymbolsInObject(response);
-    }
-
-    async getOrderStatus(user: string, oid: number | string, raw_response: boolean = false): Promise<OrderStatus> {
-        const response = await this.httpApi.makeRequest({
-            type: INFO_TYPES.ORDER_STATUS,
-            user,
-            oid,
-        });
-        return raw_response ? response : this.convertSymbolsInObject(response);
-    }
-
-    async getL2Book(coin: string, raw_response: boolean = false): Promise<L2Book> {
-        const response = await this.httpApi.makeRequest({
-            type: INFO_TYPES.L2_BOOK,
-            coin: this.convertSymbol(coin, 'reverse'),
-        });
-        return raw_response ? response : this.convertSymbolsInObject(response);
-    }
-
-    async getCandleSnapshot(
-        coin: string,
-        interval: string,
-        startTime: number,
-        endTime: number,
-        raw_response: boolean = false
-    ): Promise<CandleSnapshot> {
-        const response = await this.httpApi.makeRequest({
-            type: INFO_TYPES.CANDLE_SNAPSHOT,
-            req: {
-                coin: this.convertSymbol(coin, 'reverse'),
-                interval,
-                startTime,
-                endTime,
-            },
-        });
-        return raw_response ? response : this.convertSymbolsInObject(response, ['s']);
-    }
-
-    private convertAllMids(response: any): AllMids {
-        const convertedResponse: AllMids = {};
-        for (const [key, value] of Object.entries(response)) {
-            const convertedKey = this.convertSymbol(key);
-            const convertedValue = parseFloat(value as string);
-            convertedResponse[convertedKey] = String(convertedValue);
-        }
-        return convertedResponse;
+        return rawResponse ? response : await this.symbolConversion.convertResponse(response, ["s"]);
     }
 }
