@@ -1,5 +1,5 @@
 import { encode } from '@msgpack/msgpack';
-import { ethers, getBytes, HDNodeWallet, keccak256, type Wallet } from 'ethers';
+import { ethers, getBytes, HDNodeWallet, keccak256, Wallet } from 'ethers';
 
 import type { Builder, Order, OrderType, OrderWire, Signature, CancelOrderRequest, Grouping } from '../types';
 
@@ -223,4 +223,69 @@ export function cancelOrderToAction(cancelRequest: CancelOrderRequest): any {
         type: 'cancel',
         cancels: [cancelRequest],
     };
+}
+
+// Define return types for better type safety
+type AddyVerificationSuccess = {
+    success: true;
+    privateKey: string;
+    publicKey: string;
+    address: string;
+    expectedAddress?: string;
+    match?: boolean;
+}
+
+type AddyVerificationError = {
+    success: false;
+    error: string;
+    code?: string;
+}
+
+export type AddyVerificationResult = AddyVerificationSuccess | AddyVerificationError;
+
+export function verifyEthAddress(privateKey: string, expectedAddress?: string): AddyVerificationResult {
+    try {
+        // Validate private key format
+        if (!privateKey?.length) {
+            throw new Error("Private key is required")
+        }
+
+        // Add 0x prefix if not present
+        const formattedKey = privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`
+
+        // Validate private key length
+        if (formattedKey.length !== 66) { // 0x + 64 hex chars
+            throw new Error("Invalid private key length")
+        }
+
+        const wallet = new Wallet(formattedKey)
+
+        const result: AddyVerificationSuccess = {
+            success: true,
+            privateKey: wallet.signingKey.privateKey,
+            publicKey: wallet.signingKey.publicKey,
+            address: wallet.address,
+        }
+
+        if (expectedAddress) {
+            // Validate address format
+            if (!expectedAddress.match(/^0x[0-9a-fA-F]{40}$/)) {
+                throw new Error("Invalid expected address format")
+            }
+
+            const formattedAddr = expectedAddress.toLowerCase()
+            result.expectedAddress = expectedAddress
+            result.match = wallet.address.toLowerCase() === formattedAddr
+        }
+
+        return result
+
+    } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : "Unknown error occurred"
+        return {
+            success: false,
+            error: `Failed to verify: ${errorMessage}`,
+            code: error instanceof Error ? error.name : undefined
+        }
+    }
 }
